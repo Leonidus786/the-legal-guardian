@@ -1,0 +1,6 @@
+{
+  "name": "The Legal Guardian",
+  "description": "Private counsel and strategic legal, financial, and corporate advisory with institutional trust, discreet intelligence, and cross-border capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
