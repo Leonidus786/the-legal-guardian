@@ -1378,8 +1378,19 @@ function InternationalView({
   );
 }
 
+interface AdvisoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  domain?: string;
+  relevantLaw?: string;
+  nextSteps?: string;
+  caveat?: string;
+  confidence?: string;
+  isError?: boolean;
+}
+
 function ConsultView({ theme, setRoute }: { theme: string; setRoute: (r: AppRoute) => void }) {
-  const [chat, setChat] = useState<Array<{ role: 'user' | 'assistant'; text: string; statute?: string }>>([
+  const [chat, setChat] = useState<Array<AdvisoryMessage>>([
     {
       role: 'assistant',
       text: "Welcome to The Legal Guardian Advisory Intelligence. Select a matter archetype below or enter your inquiry to review jurisdictional procedures, statutory limitation periods, and prerequisite filings under Indian law."
@@ -1388,63 +1399,52 @@ function ConsultView({ theme, setRoute }: { theme: string; setRoute: (r: AppRout
   const [inputVal, setInputVal] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const getKnowledgeResponse = (query: string): { text: string; statute: string } => {
-    const q = query.toLowerCase();
-    if (q.includes('ibc') || q.includes('insolvency') || q.includes('nclt')) {
-      return {
-        text: "Under the Insolvency and Bankruptcy Code (IBC) 2016, Section 7 petitions (Financial Creditors) and Section 9 petitions (Operational Creditors) require establishing an undisputed default of at least ₹1 Crore. For Operational Creditors, a formal statutory Demand Notice in Form 3 or Form 4 under Section 8 is mandatory with a 10-day notice window prior to filing before the NCLT.",
-        statute: "Insolvency and Bankruptcy Code, 2016 (Sec 7, 8, 9) · Limitation Act 1963 (Art 137)"
-      };
-    } else if (q.includes('138') || q.includes('cheque') || q.includes('negotiable')) {
-      return {
-        text: "Proceedings under Section 138 of the Negotiable Instruments Act require strict adherence to procedural milestones: (1) Cheque must be presented within 3 months; (2) Statutory demand notice must be dispatched within 30 days of receiving the bank memo; (3) 15-day cure period must elapse without payment; (4) Formal criminal complaint must be filed before the Magistrate within 30 days of the cause of action arising.",
-        statute: "Negotiable Instruments Act, 1881 (Sec 138–142)"
-      };
-    } else if (q.includes('nri') || q.includes('property') || q.includes('fema')) {
-      return {
-        text: "For Non-Resident Indians managing property in India: Under FEMA regulations, sale proceeds of inherited residential property can be repatriated up to USD 1,000,000 per financial year through authorized dealer banks, subject to producing Form 15CA/15CB certificates from a chartered accountant. Adverse possession challenges require showing clear title documents, municipal property tax receipts, and registered deeds.",
-        statute: "Foreign Exchange Management (Remittance of Assets) Regulations, 2016"
-      };
-    } else if (q.includes('rera') || q.includes('builder') || q.includes('flat') || q.includes('possession')) {
-      return {
-        text: "Under Section 18 of RERA (Real Estate Regulation & Development Act, 2016), if an allottee wishes to withdraw from the project due to project delay, the promoter is liable to return the invested amount with prescribed interest (SBI MCLR + 2%). Alternatively, allottees electing to remain in the project are entitled to monthly delay compensation until possession is delivered.",
-        statute: "Real Estate (Regulation and Development) Act, 2016 (Sec 18 & 19)"
-      };
-    } else if (q.includes('pmla') || q.includes('ed') || q.includes('money laundering')) {
-      return {
-        text: "Under the Prevention of Money Laundering Act (PMLA), 2002, summons issued under Section 50 require immediate legal scrutiny. Provisional attachment orders issued under Section 5 must be adjudicated by the PMLA Adjudicating Authority within 180 days. Constitutional relief under Article 226 before the High Court is available where jurisdictional parameters are breached.",
-        statute: "Prevention of Money Laundering Act, 2002 (Sec 5, 8, 50)"
-      };
-    } else if (q.includes('incorporation') || q.includes('company') || q.includes('llp')) {
-      return {
-        text: "Under the Companies Act, 2013, incorporation of a Private Limited Company is executed via the SPICe+ integrated web form with the Central Registration Centre (CRC). Key requirements include RUN name approval, Digital Signature Certificates (DSC Class 3), Director Identification Numbers (DIN), drafting bespoke MoA/AoA, and mandatory subsequent INC-20A Commencement of Business filing within 180 days.",
-        statute: "Companies Act, 2013 (Section 3, 7, 10A) · SPICe+ MCA System"
-      };
-    } else {
-      return {
-        text: `Regarding your query on "${query}": Preliminary review indicates this involves multi-forum consideration under Indian civil, corporate, and regulatory jurisprudence. We recommend formal document intake and chamber review to evaluate forum jurisdiction, statutory compliance requirements, and interim protection strategy.`,
-        statute: "General Corporate & Civil Jurisprudence"
-      };
-    }
-  };
-
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const q = textToSend || inputVal;
     if (!q.trim() || loading) return;
 
-    setChat(prev => [...prev, { role: 'user', text: q }]);
+    setChat(prev => [...prev, { role: 'user', text: q.trim() }]);
     setInputVal('');
     setLoading(true);
 
-    setTimeout(() => {
-      const response = getKnowledgeResponse(q);
-      setChat(prev => [...prev, { 
-        role: 'assistant', 
-        text: response.text,
-        statute: response.statute
-      }]);
+    try {
+      const res = await fetch('/api/advisory', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q.trim() })
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Server communication error' }));
+        throw new Error(errorData.error || `HTTP ${res.status}: Failed to retrieve legal advisory`);
+      }
+
+      const data = await res.json();
+      setChat(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: data.directAnswer || data.text,
+          domain: data.domain,
+          relevantLaw: data.relevantLaw,
+          nextSteps: data.nextSteps,
+          caveat: data.caveat,
+          confidence: data.confidence
+        }
+      ]);
+    } catch (err: any) {
+      console.error('Advisory AI query failed:', err);
+      setChat(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `Advisory service notice: ${err.message || 'Unable to complete statutory analysis at this time.'}. Please verify that the system environment has a valid API key configured.`,
+          isError: true
+        }
+      ]);
+    } finally {
       setLoading(false);
-    }, 900);
+    }
   };
 
   return (
@@ -1469,7 +1469,7 @@ function ConsultView({ theme, setRoute }: { theme: string; setRoute: (r: AppRout
           </div>
           <div className="flex items-center gap-2 text-xs font-mono opacity-60">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="hidden sm:inline">Statutory Database Active</span>
+            <span className="hidden sm:inline">AI Advisory Mode</span>
           </div>
         </div>
         
@@ -1482,21 +1482,59 @@ function ConsultView({ theme, setRoute }: { theme: string; setRoute: (r: AppRout
               animate={{ opacity: 1, y: 0 }}
               className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className={`max-w-[85%] p-5 text-sm leading-relaxed rounded-sm ${
+              <div className={`max-w-[88%] p-5 text-sm leading-relaxed rounded-sm ${
                 m.role === 'user' 
                   ? 'bg-[#B89A62]/20 border-r-2 border-[#B89A62]' 
-                  : theme === 'dark'
-                    ? 'border border-[#B89A62]/20 bg-[#171918]/90'
-                    : 'border border-neutral-300 bg-white'
+                  : m.isError
+                    ? 'border border-red-500/30 bg-red-950/10 text-red-200'
+                    : theme === 'dark'
+                      ? 'border border-[#B89A62]/20 bg-[#171918]/90'
+                      : 'border border-neutral-300 bg-white'
               }`}>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-[#B89A62] mb-1">
-                  {m.role === 'user' ? 'Client Inquiry' : 'Advisory Intelligence'}
+                {/* Header / Domain Tag */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-current/10 pb-2 mb-3">
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89A62] font-semibold">
+                    {m.role === 'user' ? 'Client Inquiry' : 'Advisory Intelligence'}
+                  </span>
+                  {m.domain && (
+                    <span className="text-[10px] font-mono tracking-wider px-2 py-0.5 border border-[#B89A62]/30 bg-[#B89A62]/10 text-[#B89A62]">
+                      Domain: {m.domain}
+                    </span>
+                  )}
                 </div>
-                <p className="font-light">{m.text}</p>
-                {m.statute && (
-                  <div className="mt-3 pt-2 border-t border-current/10 text-[11px] font-mono opacity-70 flex items-center gap-1.5">
-                    <Scale size={12} className="text-[#B89A62] shrink-0" />
-                    <span>{m.statute}</span>
+
+                {/* Direct Answer */}
+                <div className="font-light leading-relaxed whitespace-pre-line">
+                  {m.text}
+                </div>
+
+                {/* Relevant Law or Authority */}
+                {m.relevantLaw && (
+                  <div className="mt-4 pt-3 border-t border-current/10 text-xs font-mono opacity-85 flex items-start gap-2">
+                    <Scale size={13} className="text-[#B89A62] shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-[10px] uppercase text-[#B89A62] block">Governing Law / Authority</span>
+                      <span>{m.relevantLaw}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Practical Next Steps */}
+                {m.nextSteps && (
+                  <div className="mt-3 pt-2 text-xs font-light opacity-80 flex items-start gap-2">
+                    <CheckCircle2 size={13} className="text-[#B89A62] shrink-0 mt-0.5" />
+                    <div>
+                      <span className="text-[10px] font-mono uppercase text-[#B89A62] block">Procedural Next Steps</span>
+                      <span>{m.nextSteps}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Important Caveat / Verification Note */}
+                {m.caveat && (
+                  <div className="mt-3 pt-2 border-t border-current/10 text-[11px] font-mono opacity-60 italic">
+                    <span className="text-[#B89A62] not-italic mr-1">Verification Note:</span>
+                    {m.caveat}
                   </div>
                 )}
               </div>
@@ -1504,15 +1542,15 @@ function ConsultView({ theme, setRoute }: { theme: string; setRoute: (r: AppRout
           ))}
 
           {loading && (
-            <div className="flex items-center gap-2 text-xs font-mono text-[#B89A62] animate-pulse">
+            <div className="flex items-center gap-2 text-xs font-mono text-[#B89A62] animate-pulse p-4">
               <span className="w-2 h-2 bg-[#B89A62] rounded-full animate-bounce" />
-              <span>Analyzing statutes and judicial precedents...</span>
+              <span>Analyzing statutes and judicial precedents via Gemini...</span>
             </div>
           )}
         </div>
 
         {/* Preset Archetypes */}
-        <div className="px-6 py-2 border-t border-current/10 flex flex-wrap gap-2 text-xs font-mono">
+        <div className="px-6 py-2.5 border-t border-current/10 flex flex-wrap gap-2 text-xs font-mono">
           <span className="text-[10px] uppercase opacity-50 self-center tracking-wider mr-1">Archetypes:</span>
           {[
             { label: 'IBC Default Notice', q: 'What are the steps for filing Section 7 vs Section 9 under IBC?' },
